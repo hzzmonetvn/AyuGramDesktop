@@ -4662,15 +4662,15 @@ void ApiWrap::sendMessage(
 		? replyTo->topicRootId()
 		: Data::ForumTopic::kGeneralId;
 	const auto topic = peer->forumTopicFor(topicRootId);
+	const bool canSendTexts = topic
+		? Data::CanSendTexts(topic)
+		: Data::CanSendTexts(peer);
 
 	if (clearReplyTo) {
 		message.action.replyTo.messageId = FullMsgId(message.action.replyTo.messageId.peer, message.action.replyTo.topicRootId);
 		action.replyTo.messageId = FullMsgId(action.replyTo.messageId.peer, action.replyTo.topicRootId);
 	}
 
-	const auto canSendTexts = topic
-		? Data::CanSendTexts(topic)
-		: Data::CanSendTexts(peer);
 	const auto ephemeral = _session->ephemeralMessages().wouldSend(message);
 	if (!ephemeral
 		&& !canSendTexts

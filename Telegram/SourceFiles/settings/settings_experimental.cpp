@@ -66,10 +66,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QJsonDocument>
 #include <QtGui/QGuiApplication>
 
-// AyuGram includes
 #include "ayu/ui/settings/settings_main.h"
 #include "settings/settings_builder.h"
-
 
 namespace Settings {
 namespace {
@@ -176,6 +174,7 @@ void AddOption(
 		Fn<void(const QString&, not_null<QWidget*>)> registerHighlight) {
 	const auto name = option.name().isEmpty() ? option.id() : option.name();
 	const auto &description = option.description();
+	const auto referrer = OptionReferrer(option);
 
 	const auto wrap = container->add(
 		object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
@@ -194,13 +193,29 @@ void AddOption(
 		toggles->fire_copy(option.value());
 	}, lifetime);
 
-	const auto button = inner->add(object_ptr<Button>(
-		inner,
-		rpl::single(name),
-		(option.relevant()
-			? st::settingsButtonNoIcon
-			: st::settingsOptionDisabled)
-	))->toggleOn(toggles->events_starting_with(option.value()));
+	Button *button = nullptr;
+	if (!referrer.isEmpty()) {
+		button = inner->add(object_ptr<Button>(
+			inner,
+			rpl::single(name),
+			st::settingsButtonNoIcon));
+		button->addClickHandler([=] {
+			const auto resolved = ResolveReferrer(
+				referrer,
+				&controller->session());
+			controller->setHighlightControlId(resolved.controlId);
+			controller->showSettings(resolved.section);
+			window->activate();
+		});
+	} else {
+		button = inner->add(object_ptr<Button>(
+			inner,
+			rpl::single(name),
+			(option.relevant()
+				? st::settingsButtonNoIcon
+				: st::settingsOptionDisabled)
+		))->toggleOn(toggles->events_starting_with(option.value()));
+	}
 
 	if (registerHighlight) {
 		registerHighlight(u"experimental/"_q + option.id(), button);
@@ -228,7 +243,9 @@ void AddOption(
 		e->accept();
 	}, button->lifetime());
 
-	const auto restarter = (option.relevant() && option.restartRequired())
+	const auto restarter = (referrer.isEmpty()
+		&& option.relevant()
+		&& option.restartRequired())
 		? button->lifetime().make_state<base::Timer>()
 		: nullptr;
 	if (restarter) {
@@ -241,19 +258,21 @@ void AddOption(
 			}));
 		});
 	}
-	button->toggledChanges(
-	) | rpl::on_next([=, &option](bool toggled) {
-		if (!option.relevant() && toggled != option.defaultValue()) {
-			toggles->fire_copy(option.defaultValue());
-			window->showToast(
-				tr::lng_settings_experimental_irrelevant(tr::now));
-			return;
-		}
-		option.set(toggled);
-		if (restarter) {
-			restarter->callOnce(st::settingsButtonNoIcon.toggle.duration);
-		}
-	}, inner->lifetime());
+	if (referrer.isEmpty()) {
+		button->toggledChanges(
+		) | rpl::on_next([=, &option](bool toggled) {
+			if (!option.relevant() && toggled != option.defaultValue()) {
+				toggles->fire_copy(option.defaultValue());
+				window->showToast(
+					tr::lng_settings_experimental_irrelevant(tr::now));
+				return;
+			}
+			option.set(toggled);
+			if (restarter) {
+				restarter->callOnce(st::settingsButtonNoIcon.toggle.duration);
+			}
+		}, inner->lifetime());
+	}
 
 	if (!description.isEmpty()) {
 		Ui::AddSkip(inner, st::settingsCheckboxesSkip);

@@ -4077,11 +4077,10 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 	// (_commentsShown) (_attachToggle|_replaceMedia) (_sendAs) -- _inlineResults ------ _tabbedPanel -- _fieldBarCancel (_starsReaction)
 	// (_attachDocument|_attachPhoto) _field (_ttlInfo) (_scheduled) (_silent|_botCommandStart) _tabbedSelectorToggle _send
 
-	const auto &settings = AyuSettings::getInstance();
-
 	const auto oldComposeHeight = shouldShowRichDraftPreview()
 		? _richDraftPreview->height()
 		: _field->height();
+	const auto &settings = AyuSettings::getInstance();
 	const auto commentsShown = _commentsShown
 		&& !_commentsShown->isHidden();
 	const auto fieldWidth = size.width()
@@ -4130,7 +4129,7 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 		_commentsShown->moveToLeft(left, buttonsTop);
 		left += _commentsShown->width() + _st.commentsSkip;
 	}
-	left += (_attachToggle || _sendAs) ? _st.padding.left() : _st.fieldLeft;
+	left += ((_attachToggle && settings.showAttachButtonInMessageField()) || _sendAs) ? _st.padding.left() : _st.fieldLeft;
 	if (_replaceMedia) {
 		_replaceMedia->moveToLeft(left, buttonsTop);
 	}
@@ -4215,8 +4214,8 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 }
 
 void ComposeControls::updateControlsVisibility() {
-	const auto &settings = AyuSettings::getInstance();
 	const auto hide = hideExtraButtons();
+	const auto &settings = AyuSettings::getInstance();
 	if (_botCommandStart) {
 		SWITCH_BUTTON(_botCommandStart, _botCommandShown && settings.showCommandsButtonInMessageField());
 	}
@@ -4248,7 +4247,7 @@ void ComposeControls::updateControlsVisibility() {
 		_starsReaction->show();
 	}
 	if (_ttlInfo) {
-		SWITCH_BUTTON(_ttlInfo, !hide && settings.showAutoDeleteButtonInMessageField());
+		_ttlInfo->setVisible(!hide && settings.showAutoDeleteButtonInMessageField());
 	}
 	SWITCH_BUTTON(_tabbedSelectorToggle, settings.showEmojiButtonInMessageField());
 	updateAiButtonVisibility();

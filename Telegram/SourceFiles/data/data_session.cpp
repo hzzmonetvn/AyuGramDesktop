@@ -97,7 +97,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ayu/features/filters/filters_controller.h"
 #include "ayu/utils/telegram_helpers.h"
 
-
 namespace Data {
 namespace {
 
@@ -3056,36 +3055,28 @@ void Session::unregisterMessageTTL(
 }
 
 void Session::checkTTLs() {
-	const auto &settings = AyuSettings::getInstance();
-
 	_ttlCheckTimer.cancel();
 	const auto now = base::unixtime::now();
-
-	if (settings.saveDeletedMessages()) {
-		auto toBeRemoved = ranges::views::take_while(
-			_ttlMessages,
-			[now](const auto &pair) {
-				return pair.first <= now;
-			}) | ranges::views::transform([](const auto &pair) {
-				return pair.second;
-			}) | ranges::views::join;
-
-		auto itemsToProcess = toBeRemoved | ranges::to_vector;
-		for (const auto &item : itemsToProcess) {
-			item->applyTTL(0);
-			processMessageDelete(item);
+	auto expired = std::vector<not_null<HistoryItem*>>();
+	for (const auto &[when, items] : _ttlMessages) {
+		if (when > now) {
+			break;
 		}
-	} else {
-		auto expired = std::vector<not_null<HistoryItem*>>();
-		for (const auto &[when, items] : _ttlMessages) {
-			if (when > now) {
-				break;
+		expired.insert(expired.end(), items.begin(), items.end());
+	}
+	if (!expired.empty()) {
+		auto toDestroy = std::vector<not_null<HistoryItem*>>();
+		for (const auto &item : expired) {
+			if (isMessageSavable(item)) {
+				item->applyTTL(0);
+				processMessageDelete(item);
+			} else {
+				toDestroy.push_back(item);
 			}
-			expired.insert(expired.end(), items.begin(), items.end());
 		}
-		if (!expired.empty()) {
-			notifyItemsAboutToBeDestroyed(expired);
-			for (const auto &item : expired) {
+		if (!toDestroy.empty()) {
+			notifyItemsAboutToBeDestroyed(toDestroy);
+			for (const auto &item : toDestroy) {
 				item->destroy();
 			}
 		}
@@ -3145,15 +3136,26 @@ void Session::processMessagesDeleted(
 		return;
 	}
 
+	auto toDestroy = std::vector<not_null<HistoryItem*>>();
 	auto historiesToCheck = base::flat_set<not_null<History*>>();
 	for (const auto &messageId : data) {
 		const auto i = list ? list->find(messageId.v) : Messages::iterator();
 		if (list && i != list->end()) {
 			const auto history = i->second->history();
-			processMessageDelete(i->second);
+			if (isMessageSavable(i->second)) {
+				processMessageDelete(i->second);
+			} else {
+				toDestroy.push_back(i->second);
+			}
 			historiesToCheck.emplace(history);
 		} else if (affected) {
 			affected->unknownMessageDeleted(messageId.v);
+		}
+	}
+	if (!toDestroy.empty()) {
+		notifyItemsAboutToBeDestroyed(toDestroy);
+		for (const auto &item : toDestroy) {
+			item->destroy();
 		}
 	}
 	for (const auto &history : historiesToCheck) {
@@ -3164,12 +3166,23 @@ void Session::processMessagesDeleted(
 }
 
 void Session::processNonChannelMessagesDeleted(const QVector<MTPint> &data) {
+	auto toDestroy = std::vector<not_null<HistoryItem*>>();
 	auto historiesToCheck = base::flat_set<not_null<History*>>();
 	for (const auto &messageId : data) {
 		if (const auto item = nonChannelMessage(messageId.v)) {
 			const auto history = item->history();
-			processMessageDelete(item);
+			if (isMessageSavable(item)) {
+				processMessageDelete(item);
+			} else {
+				toDestroy.push_back(item);
+			}
 			historiesToCheck.emplace(history);
+		}
+	}
+	if (!toDestroy.empty()) {
+		notifyItemsAboutToBeDestroyed(toDestroy);
+		for (const auto &item : toDestroy) {
+			item->destroy();
 		}
 	}
 	for (const auto &history : historiesToCheck) {
