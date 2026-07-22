@@ -802,6 +802,7 @@ void FiltersMenu::applyReorder(
 
 	const auto filters = &_session->session().data().chatsFilters();
 	const auto &list = filters->list();
+	const auto &settings = AyuSettings::getInstance();
 	if (!settings.hideAllChatsFolder() && !premium()) {
 		if (list[0].id() != FilterId()) {
 			filters->moveAllToFront();
