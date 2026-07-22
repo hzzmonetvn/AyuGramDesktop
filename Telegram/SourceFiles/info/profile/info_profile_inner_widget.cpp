@@ -57,9 +57,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/ui_utility.h"
 #include "styles/style_info.h"
 
-// AyuGram includes
 #include "ayu/ayu_settings.h"
-
 
 namespace Info {
 namespace Profile {
@@ -339,10 +337,9 @@ object_ptr<Ui::RpWidget> InnerWidget::setupContent(
 			if (const auto user = _peer->asUser()) {
 				tabs.push_back(MakeCommonGroupsTabDescriptor(user));
 			}
-			if (_peer->asBot() || _peer->asBroadcast()) {
-				if (!AyuSettings::getInstance().hideSimilarChannels()) {
+			if ((_peer->asBot() || _peer->asBroadcast())
+				&& !AyuSettings::getInstance().hideSimilarChannels()) {
 				tabs.push_back(MakeSimilarPeersTabDescriptor(_peer));
-			}
 			}
 		}
 		auto tabsHost = object_ptr<TabsHost>(

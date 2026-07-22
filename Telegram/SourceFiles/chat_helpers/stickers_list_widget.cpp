@@ -877,7 +877,7 @@ bool StickersListWidget::addSearchShortcut(not_null<StickersSet*> set) {
 	}
 	const auto &settings = AyuSettings::getInstance();
 	if (settings.showOnlyAddedEmojisAndStickers() && !SetInMyList(set->flags)) {
-		return;
+		return false;
 	}
 	const auto skipPremium = !session().premiumPossible();
 	auto elements = PrepareStickers(

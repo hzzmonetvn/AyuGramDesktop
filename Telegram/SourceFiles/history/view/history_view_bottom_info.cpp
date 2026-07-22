@@ -36,13 +36,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_credits.h"
 #include "styles/style_dialogs.h"
 
-// AyuGram includes
 #include "ayu/ayu_settings.h"
 #include "ayu/features/message_shot/message_shot.h"
 #include "ayu/utils/telegram_helpers.h"
-#include "core/ui_integration.h"
 #include "styles/style_ayu_icons.h"
-
 
 namespace HistoryView {
 namespace {
@@ -492,21 +489,29 @@ void BottomInfo::layout() {
 
 void BottomInfo::layoutDateText() {
 	const auto &settings = AyuSettings::getInstance();
+	const auto editedPrimary = (_data.flags & Data::Flag::EditedPrimary)
+		&& !(_data.flags & Data::Flag::ForwardedDate);
 
 	if (!settings.replaceBottomInfoWithIcons()) {
 		const auto deleted = (_data.flags & Data::Flag::AyuDeleted)
 			? (settings.deletedMark() + ' ')
 			: QString();
-		const auto edited = (_data.flags & Data::Flag::Edited)
+		const auto edited = editedPrimary
+			? QString()
+			: (_data.flags & Data::Flag::Edited)
 			? (settings.editedMark() + ' ')
 			: (_data.flags & Data::Flag::EstimateDate)
 			? (tr::lng_approximate(tr::now) + ' ')
 			: _data.scheduleRepeatPeriod
 			? (SchedulePeriodText(_data.scheduleRepeatPeriod) + ' ')
 			: QString();
-		const auto author = settings.filterZalgo() ? filterZalgo(_data.author) : _data.author;
+		const auto author = settings.filterZalgo()
+			? filterZalgo(_data.author)
+			: _data.author;
 		const auto prefix = !author.isEmpty() ? u", "_q : QString();
-		const auto date = edited + ((_data.flags & Data::Flag::ForwardedDate)
+		const auto date = editedPrimary
+			? FormatEditedDate(_data.date, _data.editedDate)
+			: edited + ((_data.flags & Data::Flag::ForwardedDate)
 			? Ui::FormatDateTimeSavedFrom(_data.date)
 			: formatMessageTime(_data.date.time()));
 		const auto afterAuthor = prefix + date;
@@ -575,19 +580,31 @@ void BottomInfo::layoutDateText() {
 		}
 
 		TextWithEntities edited;
-		if (_data.flags & Data::Flag::Edited) {
+		if (editedPrimary) {
+			edited = TextWithEntities{
+				FormatEditedDate(_data.date, _data.editedDate)
+			};
+		} else if (_data.flags & Data::Flag::Edited) {
 			edited = Ui::Text::IconEmoji(&st::editedIcon);
 			edited.append(' ');
 		} else if (_data.flags & Data::Flag::EstimateDate) {
 			edited = TextWithEntities{ tr::lng_approximate(tr::now) + ' ' };
 		} else if (_data.scheduleRepeatPeriod) {
-			edited = TextWithEntities{ SchedulePeriodText(_data.scheduleRepeatPeriod) + ' ' };
+			edited = TextWithEntities{
+				SchedulePeriodText(_data.scheduleRepeatPeriod) + ' '
+			};
 		}
 
-		const auto author = settings.filterZalgo() ? filterZalgo(_data.author) : _data.author;
-		const auto prefix = !author.isEmpty() ? (_data.flags & Data::Flag::Edited ? u" "_q : u", "_q) : QString();
+		const auto author = settings.filterZalgo()
+			? filterZalgo(_data.author)
+			: _data.author;
+		const auto prefix = !author.isEmpty()
+			? ((_data.flags & Data::Flag::Edited) ? u" "_q : u", "_q)
+			: QString();
 
-		const auto dateStr = (_data.flags & Data::Flag::ForwardedDate)
+		const auto dateStr = editedPrimary
+			? QString()
+			: (_data.flags & Data::Flag::ForwardedDate)
 			? Ui::FormatDateTimeSavedFrom(_data.date)
 			: formatMessageTime(_data.date.time());
 
@@ -609,7 +626,8 @@ void BottomInfo::layoutDateText() {
 		if (_data.flags & Data::Flag::Sponsored) {
 			// ...
 		} else if (_data.flags & Data::Flag::Imported) {
-			full.append(burnt).append(deleted).append(date).append(' ').append(tr::lng_imported(tr::now));
+			full.append(burnt).append(deleted).append(date).append(' ').append(
+				tr::lng_imported(tr::now));
 		} else if (name.isEmpty()) {
 			full.append(burnt).append(deleted).append(date);
 		} else {

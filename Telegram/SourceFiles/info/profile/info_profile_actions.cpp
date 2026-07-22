@@ -119,11 +119,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 // AyuGram includes
 #include "ayu/ui/utils/ayu_profile_values.h"
 #include "ayu/utils/telegram_helpers.h"
-#include "base/event_filter.h"
 #include "styles/style_ayu_styles.h"
 #include "ui/widgets/tooltip.h"
-#include "ui/text/text_entity.h"
-
 
 namespace Info {
 namespace Profile {
@@ -242,17 +239,6 @@ base::options::toggle ShowChannelJoinedBelowAbout({
 	return AboutValue(
 		peer
 	) | rpl::map([=](TextWithEntities &&value) {
-		if (ShowPeerIdBelowAbout.value()) {
-			using namespace Ui::Text;
-			if (!value.empty()) {
-				value.append("\n\n");
-			}
-			value.append(Italic(u"id: "_q));
-			const auto raw = peer->id.value & PeerId::kChatTypeMask;
-			value.append(Link(
-				Italic(Lang::FormatCountDecimal(raw)),
-				kPeerIdLinkIndex));
-		}
 		if (ShowChannelJoinedBelowAbout.value()) {
 			if (const auto channel = peer->asChannel()) {
 				if (!channel->amCreator() && channel->inviteDate) {
@@ -1410,6 +1396,80 @@ bool SetClickContext(
 	return false;
 }
 
+void AddRegistrationOrCreationButton(
+		const not_null<Window::SessionController*> controller,
+		not_null<PeerData*> peer,
+		TextWithLabel &idInfo,
+		const auto fitLabelToButton) {
+	if (peer->isBot() || peer->isServiceUser()) {
+		return;
+	}
+
+	const auto registrationDateButton = Ui::CreateChild<Ui::IconButton>(
+		idInfo.text->parentWidget(),
+		st::infoProfileLabeledButtonRegistrationDate);
+	const auto rightSkip = st::infoProfileLabeledButtonQrRightSkip;
+	fitLabelToButton(registrationDateButton, idInfo.text, rightSkip);
+	fitLabelToButton(registrationDateButton, idInfo.subtext, rightSkip);
+	registrationDateButton->setClickedCallback([=, show = controller->uiShow()] {
+		const auto weak = QPointer<Ui::IconButton>(registrationDateButton);
+		getRegistrationDate(
+			peer,
+			[=](const TextWithEntities &result) {
+				if (result.empty() || !weak) {
+					return;
+				}
+				const auto parent = weak->window();
+				const auto tooltip = Ui::CreateChild<Ui::ImportantTooltip>(
+					parent,
+					Ui::MakeNiceTooltipLabel(
+						parent,
+						rpl::single(result),
+						st::boxWideWidth,
+						st::registrationDateImportantTooltipLabel),
+					st::defaultImportantTooltip);
+				tooltip->toggleFast(false);
+
+				const auto geometry = Ui::MapFrom(
+					parent,
+					weak.data(),
+					weak->rect());
+				const auto countPosition = [=](QSize size) {
+					const auto left = geometry.x()
+						+ (geometry.width() - size.width()) / 2;
+					const auto right = parent->width()
+						- st::normalFont->spacew;
+					return QPoint(
+						std::max(std::min(left, right - size.width()), 0),
+						geometry.y() - size.height() - st::normalFont->descent);
+				};
+				tooltip->pointAt(geometry, RectPart::Top, countPosition);
+
+				const auto weakTooltip = QPointer(tooltip);
+				tooltip->setHiddenCallback([weakTooltip] {
+					if (weakTooltip) {
+						weakTooltip->deleteLater();
+					}
+				});
+
+				base::install_event_filter(
+					tooltip,
+					qApp,
+					[weakTooltip](not_null<QEvent*> e) {
+						if (e->type() == QEvent::MouseButtonPress) {
+							if (weakTooltip) {
+								weakTooltip->toggleAnimated(false);
+							}
+						}
+						return base::EventFilterResult::Continue;
+					});
+
+				tooltip->toggleAnimated(true);
+			});
+		return false;
+	});
+}
+
 Section DetailsFiller::makeInfo() {
 	const auto parent = _stack->layout();
 	auto wrap = object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
@@ -1773,8 +1833,7 @@ Section DetailsFiller::makeInfo() {
 
 			auto idDrawableText = IDValue(
 				user
-			) | rpl::map([](TextWithEntities &&text)
-			{
+			) | rpl::map([](TextWithEntities &&text) {
 				return Ui::Text::Code(text.text);
 			});
 			auto idInfo = addInfoOneLine(
@@ -1783,8 +1842,7 @@ Section DetailsFiller::makeInfo() {
 				tr::ayu_ContextCopyID(tr::now)
 			);
 
-			idInfo.text->setClickHandlerFilter([=](auto &&...)
-			{
+			idInfo.text->setClickHandlerFilter([=](auto &&...) {
 				const auto idText = IDString(user);
 				if (!idText.isEmpty()) {
 					QGuiApplication::clipboard()->setText(idText);
@@ -1858,37 +1916,6 @@ Section DetailsFiller::makeInfo() {
 			});
 		}
 
-		const auto hook = [=](Ui::FlatLabel::ContextMenuRequest request)
-		{
-			if (!request.link) {
-				return;
-			}
-			const auto text = request.link->copyToClipboardContextItemText();
-			if (text.isEmpty()) {
-				return;
-			}
-			const auto link = request.link->copyToClipboardText();
-			request.menu->addAction(
-				text,
-				[=] { QGuiApplication::clipboard()->setText(link); });
-			const auto last = link.lastIndexOf('/');
-			if (last < 0) {
-				return;
-			}
-			const auto mention = '@' + link.mid(last + 1);
-			if (mention.size() < 2) {
-				return;
-			}
-			request.menu->addAction(
-				tr::lng_context_copy_mention(tr::now),
-				[=] { QGuiApplication::clipboard()->setText(mention); });
-		};
-
-		if (!_topic) {
-			linkLine.text->setContextMenuHook(hook);
-			linkLine.subtext->setContextMenuHook(hook);
-		}
-
 		if (const auto channel = _topic ? nullptr : _peer->asChannel()) {
 			auto locationText = LocationValue(
 				channel
@@ -1920,18 +1947,16 @@ Section DetailsFiller::makeInfo() {
 
 			auto idDrawableText = IDValue(
 				_peer
-			) | rpl::map([](TextWithEntities &&text)
-			{
+			) | rpl::map([](TextWithEntities &&text) {
 				return Ui::Text::Code(text.text);
 			});
 			auto idInfo = addInfoOneLine(
-				idLabel,
+				rpl::single(idLabel),
 				std::move(idDrawableText),
 				tr::ayu_ContextCopyID(tr::now)
 			);
 
-			idInfo.text->setClickHandlerFilter([=, peer = _peer](auto &&...)
-			{
+			idInfo.text->setClickHandlerFilter([=, peer = _peer](auto &&...) {
 				const auto idText = IDString(peer);
 				if (!idText.isEmpty()) {
 					QGuiApplication::clipboard()->setText(idText);
@@ -1944,9 +1969,8 @@ Section DetailsFiller::makeInfo() {
 
 		if (_topic) {
 			auto idDrawableText = IDValue(
-				_peer->forumTopicFor(topicRootId)->topicRootId()
-			) | rpl::map([](TextWithEntities &&text)
-			{
+				_topic->rootId()
+			) | rpl::map([](TextWithEntities &&text) {
 				return Ui::Text::Code(text.text);
 			});
 			auto idInfo = addInfoOneLine(
@@ -1955,9 +1979,8 @@ Section DetailsFiller::makeInfo() {
 				tr::ayu_ContextCopyID(tr::now)
 			);
 
-			idInfo.text->setClickHandlerFilter([=, peer = _peer](auto &&...)
-			{
-				const auto idText = IDString(peer->forumTopicFor(topicRootId)->topicRootId());
+			idInfo.text->setClickHandlerFilter([=, topicRootId](auto &&...) {
+				const auto idText = IDString(topicRootId);
 				if (!idText.isEmpty()) {
 					QGuiApplication::clipboard()->setText(idText);
 					controller->showToast(tr::ayu_IDCopiedToast(tr::now));
