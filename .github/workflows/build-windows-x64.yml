@@ -30,18 +30,22 @@ jobs:
           $installPath = & $vswhere -latest -products * -property installationPath
           if (!$installPath) { throw "Visual Studio installation not found" }
           $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
-          $process = Start-Process -FilePath $installer -Wait -PassThru -ArgumentList @(
+          $arguments = @(
             'modify',
             '--installPath', $installPath,
             '--add', 'Microsoft.VisualStudio.Component.VC.ATL',
             '--add', 'Microsoft.VisualStudio.Component.VC.ATLMFC',
-            '--quiet', '--wait', '--norestart', '--nocache'
+            '--quiet', '--norestart', '--force', '--nocache'
           )
-          if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) {
-            throw "Visual Studio component install failed: $($process.ExitCode)"
+          & $installer @arguments
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0 -and $exitCode -ne 3010) {
+            throw "Visual Studio component install failed: $exitCode"
           }
-          $atl = Join-Path $installPath 'VC\Tools\MSVC\14.44.35207\atlmfc\include\atlbase.h'
-          if (!(Test-Path $atl)) { throw "ATL header not installed at $atl" }
+          $atl = Get-ChildItem (Join-Path $installPath 'VC\Tools\MSVC') -Recurse -Filter atlbase.h |
+            Select-Object -First 1
+          if (!$atl) { throw "ATL header was not installed" }
+          Write-Host "ATL installed at $($atl.FullName)"
 
       - name: Configure MSVC
         uses: ilammy/msvc-dev-cmd@v1
