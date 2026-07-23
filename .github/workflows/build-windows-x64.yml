@@ -23,6 +23,26 @@ jobs:
           submodules: recursive
           path: TBuild/AyuGramDesktop
 
+      - name: Install ATL and MFC
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installPath = & $vswhere -latest -products * -property installationPath
+          if (!$installPath) { throw "Visual Studio installation not found" }
+          $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+          $process = Start-Process -FilePath $installer -Wait -PassThru -ArgumentList @(
+            'modify',
+            '--installPath', $installPath,
+            '--add', 'Microsoft.VisualStudio.Component.VC.ATL',
+            '--add', 'Microsoft.VisualStudio.Component.VC.ATLMFC',
+            '--quiet', '--wait', '--norestart', '--nocache'
+          )
+          if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) {
+            throw "Visual Studio component install failed: $($process.ExitCode)"
+          }
+          $atl = Join-Path $installPath 'VC\Tools\MSVC\14.44.35207\atlmfc\include\atlbase.h'
+          if (!(Test-Path $atl)) { throw "ATL header not installed at $atl" }
+
       - name: Configure MSVC
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -32,6 +52,14 @@ jobs:
 
       - name: Configure NuGet
         run: nuget sources Disable -Name "Microsoft Visual Studio Offline Packages"
+
+      - name: Cache prepared dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            TBuild/ThirdParty
+            TBuild/Libraries
+          key: windows-x64-qt6-${{ hashFiles('TBuild/AyuGramDesktop/Telegram/build/prepare/prepare.py') }}
 
       - name: Prepare libraries
         run: |
