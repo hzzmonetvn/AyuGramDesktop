@@ -1,0 +1,80 @@
+name: Build Windows x64
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: cmd
+
+    steps:
+      - name: Prepare directories
+        run: |
+          mkdir %GITHUB_WORKSPACE%\TBuild
+          mkdir %GITHUB_WORKSPACE%\TBuild\Libraries
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          path: TBuild/AyuGramDesktop
+
+      - name: Configure MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+          sdk: 10.0.26100.0
+          toolset: 14.44
+
+      - name: Configure NuGet
+        run: |
+          nuget sources Disable -Name "Microsoft Visual Studio Offline Packages"
+          nuget sources Add -Source https://api.nuget.org/v3/index.json
+
+      - name: Prepare libraries
+        run: |
+          cd %GITHUB_WORKSPACE%\TBuild
+          AyuGramDesktop\Telegram\build\prepare\win.bat silent qt6
+
+      - name: Configure AyuGram
+        run: |
+          cd %GITHUB_WORKSPACE%\TBuild\AyuGramDesktop\Telegram
+          call configure.bat ^
+          x64 ^
+          qt6 ^
+          -D TDESKTOP_API_ID=2040 ^
+          -D TDESKTOP_API_HASH=b18441a1ff607e10a989891a5462e627 ^
+          -D CMAKE_CONFIGURATION_TYPES=Release ^
+          -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
+          -D DESKTOP_APP_DISABLE_AUTOUPDATE=OFF ^
+          -D DESKTOP_APP_DISABLE_CRASH_REPORTS=OFF
+
+      - name: Build AyuGram
+        run: |
+          cd %GITHUB_WORKSPACE%\TBuild\AyuGramDesktop\Telegram
+          cmake --build ..\out --config Release --parallel
+
+      - name: Prepare artifact
+        shell: pwsh
+        run: |
+          $source = Join-Path $env:GITHUB_WORKSPACE 'TBuild\AyuGramDesktop\out\Release\AyuGram.exe'
+          if (!(Test-Path $source)) { throw "AyuGram.exe not found at $source" }
+          $artifact = Join-Path $env:GITHUB_WORKSPACE 'artifact'
+          New-Item -ItemType Directory -Path $artifact -Force | Out-Null
+          Copy-Item $source (Join-Path $artifact 'AyuGram-7.0.4-windows-x64.exe')
+          $hash = (Get-FileHash $source -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  AyuGram-7.0.4-windows-x64.exe" | Set-Content (Join-Path $artifact 'AyuGram-7.0.4-windows-x64.exe.sha256') -Encoding ascii
+          Get-ChildItem $artifact | Format-Table Name,Length
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AyuGram-7.0.4-windows-x64
+          path: artifact/
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error
