@@ -47,6 +47,19 @@ jobs:
           if (!$atl) { throw "ATL header was not installed" }
           Write-Host "ATL installed at $($atl.FullName)"
 
+          # Breakpad's generated VS project still references the legacy
+          # <VS>\VC\atlmfc path instead of VCToolsInstallDir.
+          $versionedAtlmfc = $atl.Directory.Parent.FullName
+          $legacyAtlmfc = Join-Path $installPath 'VC\atlmfc'
+          if (Test-Path $legacyAtlmfc) {
+            Remove-Item $legacyAtlmfc -Recurse -Force
+          }
+          New-Item -ItemType Junction -Path $legacyAtlmfc -Target $versionedAtlmfc | Out-Null
+          if (!(Test-Path (Join-Path $legacyAtlmfc 'include\atlbase.h'))) {
+            throw "Legacy ATL junction is invalid"
+          }
+          Write-Host "Legacy ATL path linked to $versionedAtlmfc"
+
       - name: Configure MSVC
         uses: ilammy/msvc-dev-cmd@v1
         with:
