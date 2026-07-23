@@ -31,9 +31,7 @@ jobs:
           toolset: 14.44
 
       - name: Configure NuGet
-        run: |
-          nuget sources Disable -Name "Microsoft Visual Studio Offline Packages"
-          nuget sources Add -Source https://api.nuget.org/v3/index.json
+        run: nuget sources Disable -Name "Microsoft Visual Studio Offline Packages"
 
       - name: Prepare libraries
         run: |
